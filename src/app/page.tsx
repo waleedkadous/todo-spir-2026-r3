@@ -7,12 +7,16 @@ import { TodoFilters, StatusFilter, PriorityFilter } from "@/components/TodoFilt
 import { TodoList } from "@/components/TodoList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { NLInput } from "@/components/NLInput";
+import { PrivacyNotice } from "@/components/PrivacyNotice";
+import { StorageWarning } from "@/components/StorageWarning";
+import { EmptyState } from "@/components/EmptyState";
 import { Todo } from "@/types/todo";
 
 export default function Home() {
   const {
     todos,
     loaded,
+    storageAvailable,
     addTodo,
     updateTodo,
     deleteTodo,
@@ -39,6 +43,8 @@ export default function Home() {
 
   return (
     <div className="flex flex-col gap-4">
+      {!storageAvailable && <StorageWarning />}
+
       <NLInput
         todos={todos}
         onAddTodo={addTodo}
@@ -68,14 +74,20 @@ export default function Home() {
         {todos.length} total &middot; {todos.length - completedCount} pending
       </div>
 
-      <TodoList
-        todos={todos}
-        statusFilter={statusFilter}
-        priorityFilter={priorityFilter}
-        onToggle={toggleTodo}
-        onEdit={setEditingTodo}
-        onDelete={setDeleteId}
-      />
+      {todos.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <TodoList
+          todos={todos}
+          statusFilter={statusFilter}
+          priorityFilter={priorityFilter}
+          onToggle={toggleTodo}
+          onEdit={setEditingTodo}
+          onDelete={setDeleteId}
+        />
+      )}
+
+      <PrivacyNotice />
 
       <ConfirmDialog
         open={!!deleteId}
