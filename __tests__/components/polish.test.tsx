@@ -6,8 +6,8 @@ import { EmptyState } from "@/components/EmptyState";
 describe("PrivacyNotice", () => {
   it("should render privacy disclosure about Gemini", () => {
     render(<PrivacyNotice />);
+    expect(screen.getByText(/todo data/)).toBeInTheDocument();
     expect(screen.getByText(/Google Gemini API/)).toBeInTheDocument();
-    expect(screen.getByText(/natural language processing/)).toBeInTheDocument();
   });
 });
 
