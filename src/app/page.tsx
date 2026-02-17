@@ -6,6 +6,7 @@ import { TodoForm } from "@/components/TodoForm";
 import { TodoFilters, StatusFilter, PriorityFilter } from "@/components/TodoFilters";
 import { TodoList } from "@/components/TodoList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { NLInput } from "@/components/NLInput";
 import { Todo } from "@/types/todo";
 
 export default function Home() {
@@ -38,6 +39,14 @@ export default function Home() {
 
   return (
     <div className="flex flex-col gap-4">
+      <NLInput
+        todos={todos}
+        onAddTodo={addTodo}
+        onUpdateTodo={updateTodo}
+        onDeleteTodo={deleteTodo}
+        onToggleTodo={toggleTodo}
+      />
+
       <TodoForm
         key={editingTodo?.id ?? "new"}
         onSubmit={addTodo}
