@@ -54,7 +54,7 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
 
 #### Implementation Details
 - Files to create:
-  - `package.json` — dependencies: next, react, react-dom, tailwindcss, @google/generative-ai, uuid
+  - `package.json` — dependencies: next, react, react-dom, tailwindcss, @google/generative-ai, uuid; devDependencies: typescript, @types/react, @types/node, jest, ts-jest, @testing-library/react, @testing-library/jest-dom, @testing-library/user-event, @types/jest, jest-environment-jsdom
   - `tsconfig.json` — TypeScript configuration
   - `tailwind.config.ts` — Tailwind configuration
   - `postcss.config.mjs` — PostCSS for Tailwind
@@ -142,6 +142,8 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
 #### Objectives
 - Build the complete todo management UI
 - Implement filtering by status and priority
+- Implement sorting (default: pending first, then by due date, then by creation date)
+- Add "clear completed" bulk action
 - Responsive design for mobile and desktop
 
 #### Deliverables
@@ -151,6 +153,8 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
 - [ ] Delete todo with confirmation
 - [ ] Status toggle (checkbox)
 - [ ] Filter controls (status + priority)
+- [ ] Default sort order: pending first, then by due date (soonest first), then by createdAt (newest first)
+- [ ] "Clear completed" button to bulk-remove completed todos
 - [ ] Responsive layout
 - [ ] Component tests
 
@@ -170,6 +174,8 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
   - Priority colors: high=red, medium=yellow, low=green
   - Completed todos: strikethrough text, muted colors
   - Filters combine with AND logic (status AND priority)
+  - Default sort: pending before completed, then by due date ascending (nulls last), then by createdAt descending
+  - "Clear completed" button visible when completed todos exist, with confirmation
   - Mobile: stacked layout; Desktop: single-column list
 
 #### Acceptance Criteria
@@ -180,6 +186,8 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
 - [ ] Status toggle works with visual feedback
 - [ ] Filters narrow the displayed list correctly
 - [ ] Combined filters work (e.g., high + pending)
+- [ ] Default sort order places pending before completed, soonest due dates first
+- [ ] "Clear completed" removes all completed todos with confirmation
 - [ ] Layout is responsive
 - [ ] All component tests pass
 
@@ -214,13 +222,13 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
 
 #### Implementation Details
 - Files to create/modify:
-  - `src/app/api/nl/route.ts` — POST handler: validates request, constructs Gemini prompt with system instructions + todo context + user query, calls Gemini, validates response against action allowlist, returns structured response
-  - `src/lib/gemini.ts` — Gemini client wrapper: initialize `@google/generative-ai` with API key, send prompt, parse response
-  - `src/lib/nl-prompt.ts` — System prompt template for Gemini: defines available actions, todo schema, current time context, response format instructions
+  - `src/app/api/nl/route.ts` — POST handler: validates request (including `timezone` and `currentTime` fields), constructs Gemini prompt, calls Gemini, validates response against action allowlist, returns structured response. **Must export `const runtime = "nodejs"`** to avoid Edge runtime issues with Gemini SDK.
+  - `src/lib/gemini.ts` — Gemini client wrapper: initialize `@google/generative-ai` with API key, send prompt, parse JSON response. Model identifier: use `gemini-2.0-flash` (or latest available flash model; check SDK docs during implementation).
+  - `src/lib/nl-prompt.ts` — System prompt template for Gemini: defines available actions, todo schema, **includes `currentTime` and `timezone` from request for relative date resolution**, response format instructions
   - `src/lib/nl-validation.ts` — Request validation (schema, max query length 500, max 1000 todos) and response validation (action allowlist, field checks)
   - `src/lib/rate-limit.ts` — In-memory rate limiter (20 req/min per IP)
-  - `src/components/NLInput.tsx` — Chat-style input bar: text input, send button, displays response messages, clarification options
-  - `src/components/NLResponse.tsx` — Renders NL responses: query results, action confirmations, clarification prompts, errors
+  - `src/components/NLInput.tsx` — Chat-style input bar: text input, send button, displays response messages, clarification options. **Must send `timezone` (from `Intl.DateTimeFormat().resolvedOptions().timeZone`) and `currentTime` (ISO 8601 via `new Date().toISOString()`) with every request.**
+  - `src/components/NLResponse.tsx` — Renders NL responses: query results, action confirmations, clarification prompts with clickable options, errors. **For clarification responses: clicking an option sends a refined follow-up query (stateless — appends selection to original query, no conversation history).**
   - `src/app/page.tsx` — Integrate NL input into main page
   - `__tests__/api/nl.test.ts` — API route tests with mocked Gemini
   - `__tests__/lib/nl-validation.test.ts` — Validation logic tests
@@ -249,7 +257,9 @@ The plan is structured into 5 phases: project scaffolding, core todo CRUD with l
 - **Unit Tests**: Request validation, response validation, rate limiter, prompt construction
 - **Integration Tests**: Full NL flow with mocked Gemini (query → response → UI update)
 - **NL Contract Tests**: All 7 action types validated, unrecognized types rejected, malformed JSON handled
-- **Manual Testing**: Various NL queries and mutations, ambiguity scenarios
+- **Date Parsing Tests**: Relative date queries ("tomorrow", "this week", "next Monday") with fixed timezone to verify correct resolution
+- **Ambiguity Flow Tests**: Multi-step clarification (ambiguous query → clarification response → refined follow-up → resolved action)
+- **Manual Testing**: Various NL queries and mutations, ambiguity scenarios, sorting queries
 
 #### Rollback Strategy
 - Remove API route and NL components; app works fully via traditional UI (Phase 3)
@@ -342,9 +352,31 @@ Linear dependency chain — each phase builds on the previous.
 4. **After Phase 4**: NL queries/mutations work with Gemini, contract tests pass
 5. **After Phase 5**: Build succeeds, all tests pass, deploy-ready
 
+## Expert Review
+
+**Date**: 2026-02-17
+**Models Consulted**: Gemini 3.0 Flash, GPT-5 Codex, Claude
+
+**Gemini** (APPROVE, HIGH):
+- Suggested default sort order → **Added to Phase 3**
+- Suggested token optimization for large lists → **Noted; max 1000 items already enforced**
+- Suggested Gemini Function Calling API → **Noted as design choice; system prompt + JSON is simpler and sufficient**
+
+**Codex** (REQUEST_CHANGES, MEDIUM):
+- Missing timezone/currentTime in NL requests → **Added explicit handling in Phase 4 NLInput and API route**
+- Clarification flow underspecified → **Added stateless follow-up behavior in NLResponse component details**
+- Missing relative-date and ambiguity test cases → **Added Date Parsing Tests and Ambiguity Flow Tests to Phase 4**
+- Incomplete test dependency list → **Added all devDependencies to Phase 1**
+- NL API runtime not specified → **Added `runtime = "nodejs"` requirement to Phase 4 API route**
+
+**Claude** (COMMENT, HIGH):
+- Sorting omitted from plan → **Added default sort order and sort logic to Phase 3**
+- "Clear completed" enhancement not scoped → **Added to Phase 3 as deliverable**
+- Gemini model identifier unspecified → **Added model identifier guidance to Phase 4**
+
 ## Approval
+- [x] Expert AI Consultation Complete
 - [ ] Technical Lead Review
-- [ ] Expert AI Consultation Complete
 
 ## Notes
 - No time estimates per SPIR protocol
