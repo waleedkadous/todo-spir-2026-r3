@@ -12,6 +12,10 @@ const ALLOWED_ACTIONS: NLResponseType[] = [
 
 const MAX_QUERY_LENGTH = 500;
 const MAX_TODOS = 1000;
+const VALID_PRIORITIES = ["low", "medium", "high"];
+const VALID_STATUSES = ["pending", "completed"];
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const ALLOWED_UPDATE_KEYS = new Set(["title", "description", "priority", "dueDate", "status"]);
 
 export interface ValidationError {
   field: string;
@@ -93,22 +97,48 @@ export function validateNLResponse(
         return { valid: false, error: "query response must have a 'todoIds' array" };
       }
       break;
-    case "create":
+    case "create": {
       if (!obj.todo || typeof obj.todo !== "object") {
         return { valid: false, error: "create response must have a 'todo' object" };
       }
-      if (typeof (obj.todo as Record<string, unknown>).title !== "string") {
+      const todo = obj.todo as Record<string, unknown>;
+      if (typeof todo.title !== "string") {
         return { valid: false, error: "create response todo must have a 'title' string" };
       }
+      if (todo.priority !== undefined && !VALID_PRIORITIES.includes(todo.priority as string)) {
+        return { valid: false, error: `create response todo has invalid priority: '${todo.priority}'` };
+      }
+      if (todo.dueDate !== undefined && (typeof todo.dueDate !== "string" || !DATE_REGEX.test(todo.dueDate))) {
+        return { valid: false, error: "create response todo has invalid dueDate (expected YYYY-MM-DD)" };
+      }
       break;
-    case "update":
+    }
+    case "update": {
       if (typeof obj.todoId !== "string") {
         return { valid: false, error: "update response must have a 'todoId' string" };
       }
       if (!obj.changes || typeof obj.changes !== "object") {
         return { valid: false, error: "update response must have a 'changes' object" };
       }
+      const changes = obj.changes as Record<string, unknown>;
+      // Strip unknown keys
+      for (const key of Object.keys(changes)) {
+        if (!ALLOWED_UPDATE_KEYS.has(key)) {
+          delete changes[key];
+        }
+      }
+      // Validate field values
+      if (changes.priority !== undefined && !VALID_PRIORITIES.includes(changes.priority as string)) {
+        return { valid: false, error: `update response has invalid priority: '${changes.priority}'` };
+      }
+      if (changes.status !== undefined && !VALID_STATUSES.includes(changes.status as string)) {
+        return { valid: false, error: `update response has invalid status: '${changes.status}'` };
+      }
+      if (changes.dueDate !== undefined && (typeof changes.dueDate !== "string" || !DATE_REGEX.test(changes.dueDate))) {
+        return { valid: false, error: "update response has invalid dueDate (expected YYYY-MM-DD)" };
+      }
       break;
+    }
     case "delete":
     case "toggle":
       if (typeof obj.todoId !== "string") {

@@ -238,4 +238,93 @@ describe("validateNLResponse", () => {
     });
     expect(result.valid).toBe(false);
   });
+
+  it("should reject create with invalid priority", () => {
+    const result = validateNLResponse({
+      type: "create",
+      message: "Created",
+      todo: { title: "Test", priority: "urgent" },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain("invalid priority");
+    }
+  });
+
+  it("should reject create with invalid dueDate format", () => {
+    const result = validateNLResponse({
+      type: "create",
+      message: "Created",
+      todo: { title: "Test", dueDate: "tomorrow" },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain("invalid dueDate");
+    }
+  });
+
+  it("should accept create with valid priority and dueDate", () => {
+    const result = validateNLResponse({
+      type: "create",
+      message: "Created",
+      todo: { title: "Test", priority: "low", dueDate: "2026-03-01" },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("should reject update with invalid priority", () => {
+    const result = validateNLResponse({
+      type: "update",
+      message: "Updated",
+      todoId: "id-1",
+      changes: { priority: "critical" },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain("invalid priority");
+    }
+  });
+
+  it("should reject update with invalid status", () => {
+    const result = validateNLResponse({
+      type: "update",
+      message: "Updated",
+      todoId: "id-1",
+      changes: { status: "done" },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain("invalid status");
+    }
+  });
+
+  it("should reject update with invalid dueDate", () => {
+    const result = validateNLResponse({
+      type: "update",
+      message: "Updated",
+      todoId: "id-1",
+      changes: { dueDate: "next week" },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain("invalid dueDate");
+    }
+  });
+
+  it("should strip unknown keys from update changes", () => {
+    const changes = { priority: "high", malicious: "payload", extra: 123 };
+    const result = validateNLResponse({
+      type: "update",
+      message: "Updated",
+      todoId: "id-1",
+      changes,
+    });
+    expect(result.valid).toBe(true);
+    if (result.valid && result.data.type === "update") {
+      const updateChanges = (result.data as { changes: Record<string, unknown> }).changes;
+      expect(updateChanges).not.toHaveProperty("malicious");
+      expect(updateChanges).not.toHaveProperty("extra");
+      expect(updateChanges.priority).toBe("high");
+    }
+  });
 });
