@@ -149,6 +149,7 @@ A fully functional, deploy-ready Next.js application with:
 - **NL Response**: < 3s for Gemini API round-trip (dependent on API latency)
 - **UI Interactions**: < 100ms for all local operations (create, edit, delete, filter)
 - **localStorage**: Support up to 1000 todos without degradation
+- **localStorage unavailable**: If localStorage is unavailable (private browsing, storage full), display a warning banner; app functions in-memory for the session but data will not persist
 
 ## Security Considerations
 - Gemini API key must NEVER be exposed to the client — all API calls go through server-side API route
@@ -224,6 +225,21 @@ A fully functional, deploy-ready Next.js application with:
 **Ambiguity Handling**:
 - When multiple todos match, present options: "I found 3 todos matching 'shopping'. Which one?"
 - When intent is unclear, ask for clarification: "Did you want to create a new todo or search for existing ones?"
+
+### Todo Data Model
+
+```typescript
+interface Todo {
+  id: string;              // UUID v4, generated on creation
+  title: string;           // Required, user-provided
+  description?: string;    // Optional, user-provided
+  priority: "low" | "medium" | "high";  // Required, default: "medium"
+  status: "pending" | "completed";      // Required, default: "pending"
+  dueDate?: string;        // Optional, ISO 8601 date (YYYY-MM-DD)
+  createdAt: string;       // ISO 8601 timestamp, set on creation
+  updatedAt: string;       // ISO 8601 timestamp, updated on any change
+}
+```
 
 ### NL Action Schema (Contract)
 
@@ -305,6 +321,10 @@ interface NLErrorResponse {
 
 **Destructive action confirmation**: For `delete` actions, the client always shows a confirmation dialog before applying. For `update` and `toggle` actions, the client applies immediately (these are easily reversible).
 
+**Multi-turn context**: The NL interface is stateless — each request is independent. For the clarification flow, the client appends the user's selection to a more specific query (e.g., "mark 'Grocery shopping' as done") rather than maintaining conversation history. This keeps the architecture simple and avoids server-side session state.
+
+**Batch operations**: Out of scope for v1. NL mutations operate on a single todo at a time. If a user says "mark all shopping todos as done," Gemini should return a clarification asking which specific todo to update. Batch support can be added in a future amendment.
+
 ### Date/Time Handling Policy
 
 - **Client responsibility**: Always sends `timezone` (IANA string from `Intl.DateTimeFormat().resolvedOptions().timeZone`) and `currentTime` (ISO 8601) with every NL request
@@ -347,6 +367,12 @@ interface NLErrorResponse {
 - Prompt injection/response validation needs concrete controls → **Added NL Security Controls section, updated Security Considerations**
 - NL testing lacks mock/contract validation → **Added NL Contract Tests section with 7 test scenarios**
 - "Zero configuration" conflicts with env var requirement → **Clarified to "requires only GEMINI_API_KEY env var"**
+
+**Claude Review** (COMMENT, HIGH confidence):
+- Missing `Todo` type definition → **Added Todo Data Model section with full TypeScript interface**
+- Multi-turn NL context unclear → **Added clarification: stateless design, client appends refined query**
+- Batch NL operations unscoped → **Explicitly scoped out for v1**
+- localStorage unavailability unspecified → **Added behavior specification in Performance Requirements**
 
 All consultation feedback has been incorporated into the relevant sections above.
 
