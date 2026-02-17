@@ -34,7 +34,7 @@ A fully functional, deploy-ready Next.js application with:
 - Filtering and sorting capabilities
 - A conversational NL interface powered by Gemini 3.0 Flash that understands arbitrary queries and commands
 - All data persisted in browser localStorage
-- Ready to deploy on Railway with zero configuration
+- Ready to deploy on Railway (only requires setting `GEMINI_API_KEY` env var)
 
 ## Stakeholders
 - **Primary Users**: Individual users managing personal tasks
@@ -56,7 +56,7 @@ A fully functional, deploy-ready Next.js application with:
 - [ ] NL interface handles ambiguity gracefully (e.g., asks for clarification when multiple matches)
 - [ ] All data persists in localStorage across page refreshes
 - [ ] Application builds and runs without errors
-- [ ] Application deploys to Railway without additional configuration
+- [ ] Application deploys to Railway (requires only `GEMINI_API_KEY` env var)
 - [ ] All tests pass
 - [ ] Responsive design works on mobile and desktop
 
@@ -154,8 +154,11 @@ A fully functional, deploy-ready Next.js application with:
 - Gemini API key must NEVER be exposed to the client — all API calls go through server-side API route
 - `GEMINI_API_KEY` set as environment variable (Railway env vars)
 - No user authentication (single-user, local data)
-- Input sanitization on NL queries to prevent prompt injection
+- **Prompt injection mitigation**: User query is delimited in the prompt; todo data passed as structured context, not interpolated. Gemini response is validated against strict action allowlist.
+- **Server-side validation**: All `/api/nl` requests validated (schema check, max query length 500 chars, max 1000 todos). All Gemini responses validated against action type allowlist before returning to client.
+- **Rate limiting**: In-memory rate limiting on `/api/nl` (20 req/min per IP) to prevent API key abuse
 - XSS prevention via React's built-in escaping
+- **Privacy disclosure**: UI notes that todo data is sent to Google Gemini API for NL processing
 
 ## Test Scenarios
 
@@ -170,11 +173,21 @@ A fully functional, deploy-ready Next.js application with:
 8. **NL Ambiguity**: Test ambiguous queries and verify graceful handling
 9. **Persistence**: Verify data survives page refresh
 
+### NL Contract Tests
+1. **Action Schema Validation**: Verify all response types conform to defined TypeScript interfaces
+2. **Action Allowlist**: Verify unrecognized action types are rejected
+3. **Ambiguity Flow**: Test multi-step clarification (ambiguous query → clarification → refined query → action)
+4. **Date Parsing**: Test relative date queries ("tomorrow", "this week", "next Monday") with fixed timezone
+5. **Gemini Mock**: Use mock Gemini responses for deterministic NL testing
+6. **Invalid Response Handling**: Test malformed JSON, missing fields, and unexpected action types from Gemini
+7. **Duplicate Title Matching**: Test NL mutations when multiple todos have similar titles
+
 ### Non-Functional Tests
 1. **Performance**: Verify localStorage operations complete in < 100ms with 100+ todos
 2. **Responsive Design**: Verify layout on mobile and desktop viewports
-3. **Error Handling**: Verify graceful degradation when Gemini API is unavailable
+3. **Error Handling**: Verify graceful degradation when Gemini API is unavailable (timeout, 500, invalid JSON)
 4. **Build Validation**: `next build` completes without errors
+5. **Rate Limiting**: Verify `/api/nl` rejects excessive requests
 
 ## Dependencies
 - **External Services**: Google Gemini 3.0 Flash API (via `@google/generative-ai` SDK)
@@ -212,17 +225,136 @@ A fully functional, deploy-ready Next.js application with:
 - When multiple todos match, present options: "I found 3 todos matching 'shopping'. Which one?"
 - When intent is unclear, ask for clarification: "Did you want to create a new todo or search for existing ones?"
 
+### NL Action Schema (Contract)
+
+The `/api/nl` endpoint accepts and returns well-defined JSON structures.
+
+**Request**:
+```typescript
+interface NLRequest {
+  query: string;           // User's natural language input
+  todos: Todo[];           // Current todo list for context
+  timezone: string;        // IANA timezone (e.g., "America/New_York")
+  currentTime: string;     // ISO 8601 timestamp from client
+}
+```
+
+**Response** — one of these action types:
+
+```typescript
+// Query action — returns filtered/matched todos
+interface NLQueryResponse {
+  type: "query";
+  message: string;         // Human-readable summary
+  todoIds: string[];       // IDs of matching todos
+}
+
+// Create action — creates a new todo
+interface NLCreateResponse {
+  type: "create";
+  message: string;
+  todo: { title: string; description?: string; priority: "low" | "medium" | "high"; dueDate?: string };
+}
+
+// Update action — modifies an existing todo
+interface NLUpdateResponse {
+  type: "update";
+  message: string;
+  todoId: string;
+  changes: Partial<{ title: string; description: string; priority: string; dueDate: string; status: string }>;
+}
+
+// Delete action — removes a todo
+interface NLDeleteResponse {
+  type: "delete";
+  message: string;
+  todoId: string;
+}
+
+// Toggle action — marks complete/pending
+interface NLToggleResponse {
+  type: "toggle";
+  message: string;
+  todoId: string;
+}
+
+// Clarification — when intent or target is ambiguous
+interface NLClarificationResponse {
+  type: "clarification";
+  message: string;         // Question to the user
+  options?: string[];      // Suggested options (e.g., matching todo titles)
+}
+
+// Error — when query cannot be processed
+interface NLErrorResponse {
+  type: "error";
+  message: string;
+}
+```
+
+**Allowed action types** (strict allowlist): `query`, `create`, `update`, `delete`, `toggle`, `clarification`, `error`. Any unrecognized action type from Gemini is rejected and returns an error to the client.
+
+### Ambiguity Resolution Flow
+
+1. User sends NL command (e.g., "mark shopping as done")
+2. Gemini receives todo list and finds multiple matches
+3. Gemini returns `{ type: "clarification", message: "I found 3 todos with 'shopping'. Which one?", options: ["Grocery shopping", "Shopping list", "Online shopping"] }`
+4. Client displays the clarification message with clickable options
+5. User selects an option or types a more specific command
+6. Client sends a follow-up request with the refined query
+
+**Destructive action confirmation**: For `delete` actions, the client always shows a confirmation dialog before applying. For `update` and `toggle` actions, the client applies immediately (these are easily reversible).
+
+### Date/Time Handling Policy
+
+- **Client responsibility**: Always sends `timezone` (IANA string from `Intl.DateTimeFormat().resolvedOptions().timeZone`) and `currentTime` (ISO 8601) with every NL request
+- **Server responsibility**: Includes timezone and current time in the Gemini system prompt so relative date references ("tomorrow", "this week", "next Monday") resolve correctly
+- **Due date storage**: All due dates stored as ISO 8601 date strings (YYYY-MM-DD) in localStorage
+- **Display**: Due dates rendered in the user's local timezone using the browser's `Intl.DateTimeFormat`
+- **"This week"**: Defined as Monday through Sunday of the current week in the user's timezone
+
 ### NL Processing Architecture
-- Client sends: `{ query: string, todos: Todo[] }` to `/api/nl`
-- Server sends todo context + user query to Gemini 3.0 Flash with a system prompt defining available actions
-- Gemini returns structured JSON: `{ action: string, params: object }` or `{ response: string, results: Todo[] }`
-- Client applies the action or displays the response
+- Client sends: `NLRequest` to `POST /api/nl`
+- Server validates the request schema
+- Server constructs a Gemini prompt with: system instructions (available actions, todo schema, current time/timezone), the todo list as context, and the user's query
+- Gemini returns structured JSON matching one of the response types above
+- Server validates the response against the action allowlist and schema
+- Server returns validated response or error to client
+- Client applies the action or displays the message
+
+### NL Security Controls
+- **Server-side request validation**: Reject requests with missing/invalid fields, enforce max query length (500 chars), enforce max todo list size (1000 items)
+- **Response validation**: Parse Gemini output as JSON, validate against action allowlist, reject unrecognized action types
+- **Rate limiting**: Basic in-memory rate limiting on `/api/nl` (max 20 requests per minute per IP)
+- **Prompt injection mitigation**: Todo content is passed as structured data (not interpolated into the prompt string); user query is clearly delimited in the prompt
+- **Privacy note**: Todo titles and descriptions are sent to Google's Gemini API for NL processing. This is documented in the UI.
+
+## Expert Consultation
+
+**Date**: 2026-02-17
+**Models Consulted**: Gemini 3.0 Flash, GPT-5 Codex, Claude (failed - API overloaded)
+
+**Gemini Review** (APPROVE, HIGH confidence):
+- Praised security approach (server-side API key), clarity, and architecture choice
+- Suggested: Send client timezone/timestamp for relative date resolution → **Added to NL Action Schema**
+- Suggested: Consider Gemini Function Calling API for structured output → **Noted for plan phase**
+- Suggested: Optimize context size for large todo lists → **Noted; max 1000 items enforced**
+
+**Codex Review** (REQUEST_CHANGES, HIGH confidence):
+- NL action schema undefined → **Added complete NL Action Schema section with TypeScript interfaces**
+- Ambiguity resolution underspecified → **Added Ambiguity Resolution Flow section**
+- Date/timezone policy missing → **Added Date/Time Handling Policy section**
+- Prompt injection/response validation needs concrete controls → **Added NL Security Controls section, updated Security Considerations**
+- NL testing lacks mock/contract validation → **Added NL Contract Tests section with 7 test scenarios**
+- "Zero configuration" conflicts with env var requirement → **Clarified to "requires only GEMINI_API_KEY env var"**
+
+All consultation feedback has been incorporated into the relevant sections above.
 
 ## Approval
+- [x] Expert AI Consultation Complete
 - [ ] Technical Lead Review
 - [ ] Product Owner Review
 - [ ] Stakeholder Sign-off
-- [ ] Expert AI Consultation Complete
 
 ## Notes
 - The NL interface is the primary differentiator — it must feel natural and intelligent, not like a command parser
