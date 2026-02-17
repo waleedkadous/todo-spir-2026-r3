@@ -240,6 +240,27 @@ describe("useTodos", () => {
     });
   });
 
+  describe("edge cases", () => {
+    it("should generate valid UUID for new todos", () => {
+      const { result } = renderHook(() => useTodos());
+      act(() => {
+        result.current.addTodo({ title: "UUID Test" });
+      });
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      expect(result.current.todos[0].id).toMatch(uuidRegex);
+    });
+
+    it("deleteTodo should return false for non-existent id", () => {
+      const { result } = renderHook(() => useTodos());
+      let found: boolean;
+      act(() => {
+        found = result.current.deleteTodo("non-existent-id");
+      });
+      expect(found!).toBe(false);
+    });
+  });
+
   describe("localStorage persistence", () => {
     it("should persist todos to localStorage", () => {
       const { result } = renderHook(() => useTodos());
