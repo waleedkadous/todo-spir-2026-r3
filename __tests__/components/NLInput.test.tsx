@@ -43,6 +43,7 @@ describe("NLInput", () => {
   it("should send request and display query response", async () => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "query",
         message: "Found 1 todo",
@@ -62,6 +63,7 @@ describe("NLInput", () => {
     const user = userEvent.setup();
     const onAddTodo = jest.fn();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "create",
         message: "Created 'Buy milk'",
@@ -81,6 +83,7 @@ describe("NLInput", () => {
     const user = userEvent.setup();
     const onToggleTodo = jest.fn();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "toggle",
         message: "Marked as done",
@@ -99,6 +102,7 @@ describe("NLInput", () => {
   it("should show delete confirmation for delete action", async () => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "delete",
         message: "Delete Test Todo?",
@@ -118,6 +122,7 @@ describe("NLInput", () => {
     const user = userEvent.setup();
     const onDeleteTodo = jest.fn();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "delete",
         message: "Delete Test Todo?",
@@ -137,6 +142,7 @@ describe("NLInput", () => {
   it("should display error response", async () => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "error",
         message: "Something went wrong",
@@ -153,6 +159,7 @@ describe("NLInput", () => {
   it("should display clarification with clickable options", async () => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         type: "clarification",
         message: "Which todo?",
@@ -167,6 +174,24 @@ describe("NLInput", () => {
     expect(await screen.findByText("Which todo?")).toBeInTheDocument();
     expect(screen.getByText("Option A")).toBeInTheDocument();
     expect(screen.getByText("Option B")).toBeInTheDocument();
+  });
+
+  it("should handle HTTP error responses gracefully", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: async () => ({
+        type: "error",
+        message: "Too many requests. Please try again shortly.",
+      }),
+    });
+
+    render(<NLInput {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText(/Ask anything/), "show todos");
+    await user.click(screen.getByText("Ask"));
+
+    expect(await screen.findByText(/Too many requests/)).toBeInTheDocument();
   });
 
   it("should handle network errors gracefully", async () => {

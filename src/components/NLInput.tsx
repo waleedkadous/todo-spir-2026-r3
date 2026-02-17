@@ -24,6 +24,7 @@ export function NLInput({ todos, onAddTodo, onUpdateTodo, onDeleteTodo, onToggle
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<NLResponse | null>(null);
   const [pendingDelete, setPendingDelete] = useState<NLDeleteResponse | null>(null);
+  const [lastQuery, setLastQuery] = useState("");
 
   const sendQuery = useCallback(
     async (text: string) => {
@@ -32,6 +33,7 @@ export function NLInput({ todos, onAddTodo, onUpdateTodo, onDeleteTodo, onToggle
       setLoading(true);
       setResponse(null);
       setPendingDelete(null);
+      setLastQuery(text.trim());
 
       try {
         const res = await fetch("/api/nl", {
@@ -44,6 +46,18 @@ export function NLInput({ todos, onAddTodo, onUpdateTodo, onDeleteTodo, onToggle
             currentTime: new Date().toISOString(),
           }),
         });
+
+        if (!res.ok) {
+          let errorMessage = `Request failed (${res.status})`;
+          try {
+            const errorData = await res.json();
+            if (errorData.message) errorMessage = errorData.message;
+          } catch {
+            // Non-JSON error response
+          }
+          setResponse({ type: "error", message: errorMessage });
+          return;
+        }
 
         const data: NLResponse = await res.json();
         setResponse(data);
@@ -71,7 +85,7 @@ export function NLInput({ todos, onAddTodo, onUpdateTodo, onDeleteTodo, onToggle
         setLoading(false);
       }
     },
-    [todos, onAddTodo, onUpdateTodo, onDeleteTodo, onToggleTodo]
+    [todos, onAddTodo, onUpdateTodo, onToggleTodo]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -81,8 +95,7 @@ export function NLInput({ todos, onAddTodo, onUpdateTodo, onDeleteTodo, onToggle
   };
 
   const handleClarificationSelect = (option: string) => {
-    const lastQuery = query || (response?.type === "clarification" ? response.message : "");
-    const refined = option;
+    const refined = lastQuery ? `${lastQuery} "${option}"` : option;
     setQuery("");
     sendQuery(refined);
   };
